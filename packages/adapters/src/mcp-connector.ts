@@ -51,7 +51,7 @@ function sessionGone(error: unknown): boolean {
   return (
     error.code === 404 ||
     (error.code === 400 &&
-      /\bBad Request: (?:Server not initialized|No valid session ID(?: provided)?|Mcp-Session-Id header is required)(?="|$)/i.test(
+      /\bBad Request: (?:Server not initialized|No valid session ID(?: provided| or initialization request)?|Mcp-Session-Id header is required)(?="|$)/i.test(
         error.message,
       ))
   );

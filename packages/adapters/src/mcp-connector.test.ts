@@ -1267,6 +1267,7 @@ describe("MCP connector session cache", () => {
     "Bad Request: Server not initialized",
     "Bad Request: No valid session ID",
     "Bad Request: No valid session ID provided",
+    "Bad Request: No valid session ID or initialization request",
     "Bad Request: Mcp-Session-Id header is required",
     JSON.stringify({ error: { code: -32000, message: "Bad Request: Server not initialized" } }),
     "bad request: server not initialized",
