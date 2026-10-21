@@ -87,6 +87,8 @@ function reportAllowlistDrift(
 export class McpConnector implements ConnectorProvider {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly connecting = new Map<string, PendingSession>();
+  private readonly inFlight = new WeakMap<McpSession, number>();
+  private readonly expired = new WeakSet<McpSession>();
   // Discovery runs more than once per run: once up front, then again on every lazy
   // catalog access. Each attempt needs its own executionId.
   private discoverySeq = 0;
@@ -336,15 +338,24 @@ export class McpConnector implements ConnectorProvider {
     context: AdapterContext,
     use: (session: McpSession) => Promise<T>,
   ): Promise<T> {
-    const session = await this.sessionFor(server, context);
-    try {
-      return await use(session);
-    } catch (error) {
-      if (!(error instanceof StreamableHTTPError && error.code === 404)) throw error;
-      const sessionKey = this.sessionKey(server, context);
-      // A concurrent call may already have replaced it; keep that replacement.
-      if (this.sessions.get(sessionKey)?.session === session) await this.evict(sessionKey);
-      return use(await this.sessionFor(server, context));
+    for (let attempt = 0; ; attempt += 1) {
+      const session = await this.sessionFor(server, context);
+      this.inFlight.set(session, (this.inFlight.get(session) ?? 0) + 1);
+      try {
+        return await use(session);
+      } catch (error) {
+        if (attempt !== 0 || !(error instanceof StreamableHTTPError && error.code === 404))
+          throw error;
+        const sessionKey = this.sessionKey(server, context);
+        // Stop reusing the expired session immediately, but let its other requests
+        // receive their own responses before closing the shared SDK client.
+        if (this.sessions.get(sessionKey)?.session === session) this.sessions.delete(sessionKey);
+        this.expired.add(session);
+      } finally {
+        const remaining = (this.inFlight.get(session) ?? 1) - 1;
+        this.inFlight.set(session, remaining);
+        if (remaining === 0 && this.expired.has(session)) await session.close();
+      }
     }
   }
 
