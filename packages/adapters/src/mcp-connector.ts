@@ -45,6 +45,12 @@ type PendingSession = {
   ref?: string;
 };
 
+/** Whether the server rejected the request because it no longer knows the session. */
+function sessionGone(error: unknown): boolean {
+  if (!(error instanceof StreamableHTTPError)) return false;
+  return error.code === 404 || (error.code === 400 && /session|initiali[sz]/i.test(error.message));
+}
+
 /** Runtime MCP connector. Authorization is re-checked against the bot assignment on every call. */
 /**
  * Stale allowlist entries are filtered out below with no error. Discovery already has the
@@ -330,8 +336,9 @@ export class McpConnector implements ConnectorProvider {
   }
 
   /**
-   * Streamable HTTP servers answer 404 for a session they expired or lost on restart. The
-   * request never ran there, so it is sent once more on a fresh session instead of failing.
+   * Streamable HTTP servers answer 404 for a session they expired or lost on restart; many
+   * (including the SDK's own "Server not initialized") answer 400 naming the session instead.
+   * The request never ran there, so it is sent once more on a fresh session instead of failing.
    */
   private async withSession<T>(
     server: McpServer,
@@ -344,8 +351,7 @@ export class McpConnector implements ConnectorProvider {
       try {
         return await use(session);
       } catch (error) {
-        if (attempt !== 0 || !(error instanceof StreamableHTTPError && error.code === 404))
-          throw error;
+        if (attempt !== 0 || !sessionGone(error)) throw error;
         const sessionKey = this.sessionKey(server, context);
         // Stop reusing the expired session immediately, but let its other requests
         // receive their own responses before closing the shared SDK client.

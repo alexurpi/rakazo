@@ -52,6 +52,8 @@ function mcpFetch(
     initializations: number;
     /** Tool requests to answer 404, as a server that expired the session. */
     sessionNotFound?: number;
+    /** Overrides the 404 with another rejection, e.g. the SDK's 400 after a restart. */
+    sessionNotFoundResponse?: { status: number; body: string };
     rejectedRequests?: string[];
     headers?: Record<string, string>[];
     tools?: Array<{
@@ -82,7 +84,8 @@ function mcpFetch(
     ) {
       state.sessionNotFound -= 1;
       state.rejectedRequests?.push(message.method);
-      return new Response("Session not found", { status: 404 });
+      const rejection = state.sessionNotFoundResponse ?? { status: 404, body: "Session not found" };
+      return new Response(rejection.body, { status: rejection.status });
     }
     if (message.method === "initialize") {
       state.initializations += 1;
@@ -1255,6 +1258,40 @@ describe("MCP connector session cache", () => {
     state.sessionNotFound = 1;
     const tools = await connector.discoverTools(context);
     expect(tools.map((tool) => tool.name)).toEqual(["mcp__demo__echo"]);
+    expect(state.initializations).toBe(2);
+
+    await connector.close();
+  });
+
+  it("retries a 400 that names the lost session, but not other bad requests", async () => {
+    const state = {
+      failNext: false,
+      initializations: 0,
+      sessionNotFound: 0,
+      sessionNotFoundResponse: { status: 400, body: "Bad Request: Server not initialized" },
+    };
+    vi.stubGlobal("fetch", mcpFetch(state));
+    const prisma = { botMcpServer: { findMany: vi.fn().mockResolvedValue([ASSIGNMENT]) } };
+    const connector = new McpConnector(prisma as never, {} as never, {
+      network: TEST_NETWORK,
+    });
+    const context = {
+      spaceId: "w1",
+      userId: "u1",
+      botId: "bot-1",
+      signal: new AbortController().signal,
+    } as never;
+
+    await connector.discoverTools(context);
+    state.sessionNotFound = 1;
+    expect((await connector.discoverTools(context)).map((tool) => tool.name)).toEqual([
+      "mcp__demo__echo",
+    ]);
+    expect(state.initializations).toBe(2);
+
+    state.sessionNotFound = 1;
+    state.sessionNotFoundResponse = { status: 400, body: "Bad Request: invalid params" };
+    expect(await connector.discoverTools(context)).toEqual([]);
     expect(state.initializations).toBe(2);
 
     await connector.close();
