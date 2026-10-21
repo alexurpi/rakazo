@@ -48,7 +48,13 @@ type PendingSession = {
 /** Whether the server rejected the request because it no longer knows the session. */
 function sessionGone(error: unknown): boolean {
   if (!(error instanceof StreamableHTTPError)) return false;
-  return error.code === 404 || (error.code === 400 && /session|initiali[sz]/i.test(error.message));
+  return (
+    error.code === 404 ||
+    (error.code === 400 &&
+      /\bBad Request: (?:Server not initialized|No valid session ID(?: provided)?|Mcp-Session-Id header is required)(?="|$)/i.test(
+        error.message,
+      ))
+  );
 }
 
 /** Runtime MCP connector. Authorization is re-checked against the bot assignment on every call. */

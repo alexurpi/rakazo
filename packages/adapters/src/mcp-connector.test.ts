@@ -1263,12 +1263,19 @@ describe("MCP connector session cache", () => {
     await connector.close();
   });
 
-  it("retries a 400 that names the lost session, but not other bad requests", async () => {
+  it.each([
+    "Bad Request: Server not initialized",
+    "Bad Request: No valid session ID",
+    "Bad Request: No valid session ID provided",
+    "Bad Request: Mcp-Session-Id header is required",
+    JSON.stringify({ error: { code: -32000, message: "Bad Request: Server not initialized" } }),
+    "bad request: server not initialized",
+  ])("retries a 400 that names the lost session, but not other bad requests (%s)", async (body) => {
     const state = {
       failNext: false,
       initializations: 0,
       sessionNotFound: 0,
-      sessionNotFoundResponse: { status: 400, body: "Bad Request: Server not initialized" },
+      sessionNotFoundResponse: { status: 400, body },
     };
     vi.stubGlobal("fetch", mcpFetch(state));
     const prisma = { botMcpServer: { findMany: vi.fn().mockResolvedValue([ASSIGNMENT]) } };
@@ -1290,7 +1297,7 @@ describe("MCP connector session cache", () => {
     expect(state.initializations).toBe(2);
 
     state.sessionNotFound = 1;
-    state.sessionNotFoundResponse = { status: 400, body: "Bad Request: invalid params" };
+    state.sessionNotFoundResponse = { status: 400, body: "Bad Request: Invalid session parameter" };
     expect(await connector.discoverTools(context)).toEqual([]);
     expect(state.initializations).toBe(2);
 
