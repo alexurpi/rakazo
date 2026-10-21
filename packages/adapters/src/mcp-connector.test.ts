@@ -50,6 +50,8 @@ function mcpFetch(
   state: {
     failNext: boolean;
     initializations: number;
+    /** Requests after initialize to answer 404, as a server that expired the session. */
+    sessionNotFound?: number;
     headers?: Record<string, string>[];
     tools?: Array<{
       name: string;
@@ -73,6 +75,10 @@ function mcpFetch(
       method?: string;
       params?: { name?: string };
     };
+    if (message.method !== "initialize" && state.sessionNotFound) {
+      state.sessionNotFound -= 1;
+      return new Response("Session not found", { status: 404 });
+    }
     if (message.method === "initialize") {
       state.initializations += 1;
       return Response.json({
@@ -1097,6 +1103,76 @@ describe("MCP connector session cache", () => {
     const events: unknown[] = [];
     for await (const event of connector.execute(call, context)) events.push(event);
     expect(events).toMatchObject([{ type: "result" }]);
+    expect(state.initializations).toBe(2);
+
+    await connector.close();
+  });
+
+  it("retries a call once on a fresh session when the server expired the cached one", async () => {
+    const state = {
+      failNext: false,
+      initializations: 0,
+      calls: [] as string[],
+      sessionNotFound: 0,
+    };
+    vi.stubGlobal("fetch", mcpFetch(state));
+    const prisma = {
+      botMcpServer: {
+        findMany: vi.fn().mockResolvedValue([ASSIGNMENT]),
+        findFirst: vi.fn().mockResolvedValue(ASSIGNMENT),
+      },
+    };
+    const connector = new McpConnector(prisma as never, {} as never, {
+      network: TEST_NETWORK,
+    });
+    const context = {
+      spaceId: "w1",
+      userId: "u1",
+      botId: "bot-1",
+      signal: new AbortController().signal,
+    } as never;
+    const call = {
+      tool: "mcp__demo__echo",
+      args: {},
+      route: { connectorId: "mcp", resourceId: "server-1", toolName: "echo" },
+    } as never;
+
+    await connector.discoverTools(context);
+    state.sessionNotFound = 1;
+    const events: unknown[] = [];
+    for await (const event of connector.execute(call, context)) events.push(event);
+    expect(events).toMatchObject([{ type: "result" }]);
+    expect(state.initializations).toBe(2);
+    expect(state.calls).toEqual(["echo"]);
+
+    // A server that keeps forgetting the session gets one retry, not a loop.
+    state.sessionNotFound = 2;
+    const failed: unknown[] = [];
+    for await (const event of connector.execute(call, context)) failed.push(event);
+    expect(failed).toMatchObject([{ type: "error" }]);
+    expect(state.initializations).toBe(3);
+
+    await connector.close();
+  });
+
+  it("keeps a server's tools when discovery finds the cached session expired", async () => {
+    const state = { failNext: false, initializations: 0, sessionNotFound: 0 };
+    vi.stubGlobal("fetch", mcpFetch(state));
+    const prisma = { botMcpServer: { findMany: vi.fn().mockResolvedValue([ASSIGNMENT]) } };
+    const connector = new McpConnector(prisma as never, {} as never, {
+      network: TEST_NETWORK,
+    });
+    const context = {
+      spaceId: "w1",
+      userId: "u1",
+      botId: "bot-1",
+      signal: new AbortController().signal,
+    } as never;
+
+    await connector.discoverTools(context);
+    state.sessionNotFound = 1;
+    const tools = await connector.discoverTools(context);
+    expect(tools.map((tool) => tool.name)).toEqual(["mcp__demo__echo"]);
     expect(state.initializations).toBe(2);
 
     await connector.close();

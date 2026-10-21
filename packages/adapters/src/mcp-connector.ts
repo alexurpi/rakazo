@@ -1,3 +1,4 @@
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
   AdapterContext,
   ConnectorCall,
@@ -155,8 +156,9 @@ export class McpConnector implements ConnectorProvider {
       assignments.map(async (assignment): Promise<ConnectorTool[]> => {
         const startedAt = Date.now();
         try {
-          const session = await this.sessionFor(assignment.server, context);
-          const listed = await session.listTools({ signal: context.signal });
+          const listed = await this.withSession(assignment.server, context, (session) =>
+            session.listTools({ signal: context.signal }),
+          );
           reportAllowlistDrift(assignment, listed.tools, context);
           return listed.tools
             .filter(
@@ -289,10 +291,10 @@ export class McpConnector implements ConnectorProvider {
     let material: OAuthMaterial | undefined;
     const sessionKey = this.sessionKey(assignment.server, context);
     try {
-      const session = await this.sessionFor(assignment.server, context);
-      material = this.sessions.get(sessionKey)?.material;
-      const result = await session.callTool(call.route.toolName, call.args, {
-        signal: context.signal,
+      const route = call.route;
+      const result = await this.withSession(assignment.server, context, (session) => {
+        material = this.sessions.get(sessionKey)?.material;
+        return session.callTool(route.toolName, call.args, { signal: context.signal });
       });
       const secrets = material ? oauthMaterialSecrets(material) : [];
       yield { type: "result", data: redactConnectorPayload(result, secrets) };
@@ -323,6 +325,27 @@ export class McpConnector implements ConnectorProvider {
     if (!entry) return;
     this.sessions.delete(sessionKey);
     await entry.session.close();
+  }
+
+  /**
+   * Streamable HTTP servers answer 404 for a session they expired or lost on restart. The
+   * request never ran there, so it is sent once more on a fresh session instead of failing.
+   */
+  private async withSession<T>(
+    server: McpServer,
+    context: AdapterContext,
+    use: (session: McpSession) => Promise<T>,
+  ): Promise<T> {
+    const session = await this.sessionFor(server, context);
+    try {
+      return await use(session);
+    } catch (error) {
+      if (!(error instanceof StreamableHTTPError && error.code === 404)) throw error;
+      const sessionKey = this.sessionKey(server, context);
+      // A concurrent call may already have replaced it; keep that replacement.
+      if (this.sessions.get(sessionKey)?.session === session) await this.evict(sessionKey);
+      return use(await this.sessionFor(server, context));
+    }
   }
 
   private async sessionFor(server: McpServer, context: AdapterContext): Promise<McpSession> {
