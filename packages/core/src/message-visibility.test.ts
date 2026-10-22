@@ -87,8 +87,8 @@ describe("user-visible messages", () => {
     ]);
   });
 
-  it("keeps the relay of a delegated result inline while its peer activity stays hidden", () => {
-    const resultFor = (intent: "result" | "status" | "fyi") => [
+  it("keeps replies about delegated work inline while their peer activity stays hidden", () => {
+    const resultFor = (intent: "result" | "status" | "question" | "request" | "fyi") => [
       message("user", "run-user", [{ kind: "text", text: "Please ask Coder." }]),
       message("sent", "run-user", [
         { kind: "bot_message_sent", toBotId: "coder", toBotName: "Coder", text: "Check this." },
@@ -111,8 +111,18 @@ describe("user-visible messages", () => {
       message("relay", "run-peer", [{ kind: "text", text: "Coder confirmed it returns 200." }]),
     ];
 
-    for (const intent of ["result", "status"] as const) {
-      const transcript = foldPeerReplies(resultFor(intent), { includePeerReceipts: true });
+    // Results, statuses, and the helper asking back about the delegated work all wake the bot to
+    // speak to the user. An FYI never threads back, but it is not new work either.
+    const unthreaded = (intent: "fyi" | "request" | "question") =>
+      resultFor(intent).map((item) => ({ ...item, replyToMessageId: undefined }));
+    for (const messages of [
+      resultFor("result"),
+      resultFor("status"),
+      resultFor("question"),
+      resultFor("request"),
+      unthreaded("fyi"),
+    ]) {
+      const transcript = foldPeerReplies(messages, { includePeerReceipts: true });
       expect(transcript.messages.map((item) => item.id)).toEqual([
         "user",
         "sent",
@@ -121,13 +131,14 @@ describe("user-visible messages", () => {
       ]);
       expect(transcript.folded.size).toBe(0);
     }
-    // An FYI never threads back to a request, so a reply to it is still peer chatter.
-    const fyi = resultFor("fyi").map((item) => ({ ...item, replyToMessageId: undefined }));
-    expect(
-      foldPeerReplies(fyi, { includePeerReceipts: true })
-        .folded.get("received")
-        ?.map((item) => item.id),
-    ).toEqual(["relay"]);
+    // New work from another bot: the reply goes back to that bot, so it folds.
+    for (const intent of ["request", "question"] as const) {
+      expect(
+        foldPeerReplies(unthreaded(intent), { includePeerReceipts: true })
+          .folded.get("received")
+          ?.map((item) => item.id),
+      ).toEqual(["relay"]);
+    }
     // Sidebar previews stay ask-only.
     expect(
       userVisibleMessages(resultFor("result"), { includeDelegatedReplyText: false }).map(

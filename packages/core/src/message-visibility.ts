@@ -59,16 +59,17 @@ function isAskBlock(block: MessageBlock): boolean {
 }
 
 /**
- * A result or status answering this bot's own request: the delivery threads back to the request
- * it answers, matching the server's rule for when the relay marks the chat unread.
+ * Another bot handing this bot new work: a request or question that does not thread back to a
+ * message of this bot's. The run's reply goes back to that bot. Anything else (results, statuses,
+ * FYIs, and questions about work this bot delegated) wakes it to speak to the user.
  */
-function returnsDelegatedOutcome(message: PresentableMessage): boolean {
+function startsPeerWork(message: PresentableMessage): boolean {
   return (
-    !!message.replyToMessageId &&
+    !message.replyToMessageId &&
     message.blocks.some(
       (block) =>
         block.kind === "bot_message_received" &&
-        (block.intent === "result" || block.intent === "status"),
+        (block.intent === undefined || block.intent === "request" || block.intent === "question"),
     )
   );
 }
@@ -83,8 +84,8 @@ export type FoldedTranscript<T> = {
 
 /**
  * Drop peer-run activity; optionally keep sent/received receipt rows. With receipts kept, a
- * peer run's bot text replies fold under its received marker; its user-input cards stay inline,
- * and so does its relay of a result or status for work it delegated.
+ * peer run's bot text replies fold under its received marker when another bot handed it work;
+ * its user-input cards stay inline, and so do replies about work it delegated itself.
  */
 export function foldPeerReplies<T extends PresentableMessage>(
   messages: readonly T[],
@@ -92,7 +93,7 @@ export function foldPeerReplies<T extends PresentableMessage>(
 ): FoldedTranscript<T> {
   const includePeerReceipts = options.includePeerReceipts === true;
   const markerByRunId = new Map<string, string>();
-  // Runs woken by the outcome of work this bot delegated: their reply is the relay to the user.
+  // Runs not woken by new work from another bot: their replies are for the user.
   const relayRunIds = new Set<string>();
   for (const message of messages) {
     if (
@@ -101,7 +102,7 @@ export function foldPeerReplies<T extends PresentableMessage>(
       message.blocks.some((block) => block.kind === "bot_message_received")
     ) {
       markerByRunId.set(message.runId, message.id);
-      if (returnsDelegatedOutcome(message)) relayRunIds.add(message.runId);
+      if (!startsPeerWork(message)) relayRunIds.add(message.runId);
     }
   }
   const peerRunIds = new Set([...(options.knownPeerRunIds ?? []), ...markerByRunId.keys()]);
