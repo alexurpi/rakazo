@@ -186,9 +186,10 @@ test("folds a peer run's reply under its marker and keeps its ask inline", async
   await expect(reply).toHaveCount(0);
   const search = page.getByTestId("sidebar-search").getByRole("textbox");
   await search.fill(foldedReplyText);
+  // Researcher's "Messaged Chief" receipt also matches; jump to the folded reply itself.
   await page
     .getByRole("button")
-    .filter({ hasText: `Researcher · ${foldedReplyText}` })
+    .filter({ hasText: `Researcher · ${foldedReplyText} and come back with a result` })
     .first()
     .click();
   await expect(collapse).toHaveAttribute("aria-expanded", "true");
