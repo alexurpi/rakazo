@@ -123,14 +123,21 @@ describe("user-visible messages", () => {
       unthreaded("fyi"),
     ]) {
       const transcript = foldPeerReplies(messages, { includePeerReceipts: true });
-      expect(transcript.messages.map((item) => item.id)).toEqual([
-        "user",
-        "sent",
-        "received",
-        "relay",
-      ]);
+      // Threaded back to "Messaged Coder", the marker merges into that receipt; an FYI keeps it.
+      expect(transcript.messages.map((item) => item.id)).toEqual(
+        messages[2]?.replyToMessageId
+          ? ["user", "sent", "relay"]
+          : ["user", "sent", "received", "relay"],
+      );
       expect(transcript.folded.size).toBe(0);
     }
+    // With the receipt outside the loaded page, the marker stays so the exchange is still reachable.
+    expect(
+      foldPeerReplies(
+        resultFor("result").filter((item) => item.id !== "sent"),
+        { includePeerReceipts: true },
+      ).messages.map((item) => item.id),
+    ).toEqual(["user", "received", "relay"]);
     // New work from another bot: the reply goes back to that bot, so it folds.
     for (const intent of ["request", "question"] as const) {
       expect(

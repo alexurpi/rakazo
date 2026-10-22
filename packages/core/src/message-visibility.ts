@@ -85,7 +85,8 @@ export type FoldedTranscript<T> = {
 /**
  * Drop peer-run activity; optionally keep sent/received receipt rows. With receipts kept, a
  * peer run's bot text replies fold under its received marker when another bot handed it work;
- * its user-input cards stay inline, and so do replies about work it delegated itself.
+ * its user-input cards stay inline, and so do replies about work it delegated itself. Such a
+ * relay's marker is dropped when its "Messaged X" receipt is loaded, so the chat shows one chip.
  */
 export function foldPeerReplies<T extends PresentableMessage>(
   messages: readonly T[],
@@ -95,14 +96,23 @@ export function foldPeerReplies<T extends PresentableMessage>(
   const markerByRunId = new Map<string, string>();
   // Runs not woken by new work from another bot: their replies are for the user.
   const relayRunIds = new Set<string>();
+  const sentReceiptIds = new Set(
+    messages
+      .filter((message) => message.blocks.some((block) => block.kind === "bot_message_sent"))
+      .map((message) => message.id),
+  );
+  // A relay's marker that threads back to this bot's own "Messaged X" receipt adds nothing: that
+  // receipt already opens the exchange, and the relay then reads as this bot's own reply.
+  const mergedMarkerIds = new Set<string>();
   for (const message of messages) {
-    if (
-      message.runId &&
-      !markerByRunId.has(message.runId) &&
-      message.blocks.some((block) => block.kind === "bot_message_received")
-    ) {
+    if (!message.blocks.some((block) => block.kind === "bot_message_received")) continue;
+    const relay = !startsPeerWork(message);
+    if (relay && message.replyToMessageId && sentReceiptIds.has(message.replyToMessageId)) {
+      mergedMarkerIds.add(message.id);
+    }
+    if (message.runId && !markerByRunId.has(message.runId)) {
       markerByRunId.set(message.runId, message.id);
-      if (!startsPeerWork(message)) relayRunIds.add(message.runId);
+      if (relay) relayRunIds.add(message.runId);
     }
   }
   const peerRunIds = new Set([...(options.knownPeerRunIds ?? []), ...markerByRunId.keys()]);
@@ -120,7 +130,9 @@ export function foldPeerReplies<T extends PresentableMessage>(
     if (message.runId && backgroundRunIds.has(message.runId)) {
       return message.blocks.some(isBackgroundInputBlock);
     }
-    if (isPeerReceiptBlocks(message.blocks)) return includePeerReceipts;
+    if (isPeerReceiptBlocks(message.blocks)) {
+      return includePeerReceipts && !mergedMarkerIds.has(message.id);
+    }
     // A reaction folds with its folded parent so the count shows when the parent is expanded.
     const parentMarkerId = message.replyToMessageId
       ? markerOf.get(message.replyToMessageId)

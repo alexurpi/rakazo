@@ -57,7 +57,11 @@ test("shows peer chips in transcript and opens view-only peer chat", async ({ pa
   await expect(chip).not.toContainText("{peer}");
   // User bubble still contains the phrase; peer body must not appear outside the chip.
   await expect(chip).not.toContainText("peer-exchange-alpha");
-  await expect(transcript.getByText("peer-exchange-alpha")).toHaveCount(1);
+  // Only the user's ask and Chief's own relay of Researcher's result carry the phrase.
+  await expect(transcript.getByText(/^Here's what Researcher found: /)).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(transcript.getByText("peer-exchange-alpha")).toHaveCount(2);
   const assertChipLeftAligned = async () => {
     const transcriptBox = await transcript.boundingBox();
     const chipBox = await chip.boundingBox();
@@ -108,10 +112,12 @@ test("shows peer chips in transcript and opens view-only peer chat", async ({ pa
 });
 
 const foldedReplyText = "on it. i will work this in the background";
+const relayText = "Here's what Researcher found: done. i handled: peer-fold-alpha";
 
 /**
- * Chief messages Researcher. Chief relays Researcher's result to the user inline; Researcher's
- * own work on Chief's request folds under its marker in Researcher's chat.
+ * Chief messages Researcher. Chief relays Researcher's result to the user as its own reply, under
+ * its "Messaged Researcher" receipt; Researcher's own work on Chief's request folds under its
+ * marker in Researcher's chat.
  */
 async function openFoldedPeerReply(page: Page, name: string, testInfo: TestInfo) {
   await signup(page, `${name}-${Date.now()}@rakazo.test`, "password12", "Peer Fold");
@@ -131,17 +137,20 @@ async function openFoldedPeerReply(page: Page, name: string, testInfo: TestInfo)
   await chiefComposer.fill("message the bot named Researcher saying peer-fold-alpha");
   await chiefComposer.press("Enter");
 
-  // Researcher's result comes back to Chief as a peer run: marker plus Chief's relay, which is
-  // for the user and stays in the chat.
+  // Researcher's result wakes Chief, which relays it to the user as an ordinary reply. Its
+  // marker merges into the "Messaged Researcher" receipt, which already opens the exchange.
   const transcript = page.getByTestId("transcript");
+  await expect(transcript.getByText(relayText)).toBeVisible({ timeout: 60_000 });
+  await expect(transcript.getByText("messaging that bot now.")).toBeVisible();
+  await expect(
+    transcript.getByTestId("peer-receipt-chip").filter({ hasText: "Messaged Researcher" }),
+  ).toBeVisible();
   await expect(
     transcript.getByTestId("peer-receipt-chip").filter({ hasText: "Message from Researcher" }),
-  ).toBeVisible({ timeout: 60_000 });
-  await expect(transcript.getByText("messaging that bot now.")).toBeVisible();
-  await expect(transcript.getByText(foldedReplyText)).toBeVisible({ timeout: 60_000 });
-  await expect(
-    transcript.getByRole("button", { name: "Expand Message from Researcher" }),
   ).toHaveCount(0);
+  // Researcher's own words stay in the exchange; only Chief's relay reaches the user.
+  await expect(transcript.getByText(foldedReplyText)).toHaveCount(0);
+  await expect(transcript.getByTestId("message-bot-bubble").last()).toContainText(relayText);
   await captureScreenshot(page, testInfo, "peer-result-relay-inline");
 
   // Researcher's reply to Chief's request is bot-to-bot work: it folds in Researcher's chat.
@@ -353,9 +362,7 @@ test("answers a message sent while the bot works on another bot's request", asyn
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
   await expect(
-    page.getByTestId("transcript").getByTestId("peer-receipt-chip").filter({
-      hasText: "Message from Researcher",
-    }),
+    page.getByTestId("transcript").getByText(/^Here's what Researcher found: /),
   ).toBeVisible({ timeout: 30_000 });
   const returned = await rpc<{
     messages: Array<{ blocks: Array<{ kind: string; text?: string }> }>;
