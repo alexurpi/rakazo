@@ -81,7 +81,14 @@ export type FoldedTranscript<T> = {
   folded: ReadonlyMap<string, readonly T[]>;
   /** The marker each folded message folds under, so a jump can expand it. */
   markerOf: ReadonlyMap<string, string>;
+  /** The "Messaged X" receipt each dropped relay marker merged into, so a jump lands there. */
+  mergedInto: ReadonlyMap<string, string>;
 };
+
+/** Where a jump to a message lands: a dropped relay marker resolves to its receipt. */
+export function jumpTargetId(transcript: FoldedTranscript<unknown>, messageId: string): string {
+  return transcript.mergedInto.get(messageId) ?? messageId;
+}
 
 /**
  * Drop peer-run activity; optionally keep sent/received receipt rows. With receipts kept, a
@@ -104,12 +111,17 @@ export function foldPeerReplies<T extends PresentableMessage>(
   );
   // A relay's marker that threads back to this bot's own "Messaged X" receipt adds nothing: that
   // receipt already opens the exchange, and the relay then reads as this bot's own reply.
-  const mergedMarkerIds = new Set<string>();
+  const mergedInto = new Map<string, string>();
   for (const message of messages) {
     if (!message.blocks.some((block) => block.kind === "bot_message_received")) continue;
     const relay = !startsPeerWork(message);
-    if (relay && message.replyToMessageId && sentReceiptIds.has(message.replyToMessageId)) {
-      mergedMarkerIds.add(message.id);
+    if (
+      includePeerReceipts &&
+      relay &&
+      message.replyToMessageId &&
+      sentReceiptIds.has(message.replyToMessageId)
+    ) {
+      mergedInto.set(message.id, message.replyToMessageId);
     }
     if (message.runId && !markerByRunId.has(message.runId)) {
       markerByRunId.set(message.runId, message.id);
@@ -132,7 +144,7 @@ export function foldPeerReplies<T extends PresentableMessage>(
       return message.blocks.some(isBackgroundInputBlock);
     }
     if (isPeerReceiptBlocks(message.blocks)) {
-      return includePeerReceipts && !mergedMarkerIds.has(message.id);
+      return includePeerReceipts && !mergedInto.has(message.id);
     }
     // A reaction folds with its folded parent so the count shows when the parent is expanded.
     const parentMarkerId = message.replyToMessageId
@@ -163,7 +175,7 @@ export function foldPeerReplies<T extends PresentableMessage>(
     if (markerId === undefined) return true;
     return fold(markerId, message);
   });
-  return { messages: visible, folded, markerOf };
+  return { messages: visible, folded, markerOf, mergedInto };
 }
 
 export function userVisibleMessages<T extends PresentableMessage>(

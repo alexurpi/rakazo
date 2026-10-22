@@ -36,6 +36,7 @@ import {
   isRunWaitingOnUser,
   isRunWorking,
   isSecretAskBlock,
+  jumpTargetId,
   leaveThreadWindow,
   openThreadWindow,
   plainTextFromMarkdown,
@@ -1303,19 +1304,24 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
       return;
     if (target.groupId && activeGroupId.current !== target.groupId) return;
     if (target.botId && activeBotId.current !== target.botId) return;
-    const targetInPage = page.messages.some((message) => message.id === target.messageId);
+    // A relay's dropped marker (e.g. a search hit) lands on its "Messaged X" receipt.
+    const messageId = jumpTargetId(
+      foldPeerReplies(page.messages, { includePeerReceipts: true }),
+      target.messageId,
+    );
+    const targetInPage = page.messages.some((message) => message.id === messageId);
     const opened = targetInPage ? openThreadWindow(snap, page) : null;
     expandedHistoryThread.current = targetInPage ? page.threadId : null;
     pinnedAroundRef.current = opened
       ? {
           ...threadTarget,
-          messageId: target.messageId,
+          messageId,
           threadId: page.threadId,
           newerCursor: opened.newerCursor,
         }
       : null;
-    jumpAnchor.current.begin(targetInPage ? target.messageId : null);
-    jumpScrollTarget.current = targetInPage ? target.messageId : null;
+    jumpAnchor.current.begin(targetInPage ? messageId : null);
+    jumpScrollTarget.current = targetInPage ? messageId : null;
     newerLoadFailed.current = false;
     joinPinnedAfterLayout.current = null;
     pinnedScrollMetrics.current = { offset: 0, viewport: 0, content: 0 };
@@ -1325,7 +1331,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
     const next = opened?.snapshot ?? snap;
     // A reply folded under its peer marker is only drawn once the marker is expanded.
     const markerId = targetInPage
-      ? foldPeerReplies(next.messages, { includePeerReceipts: true }).markerOf.get(target.messageId)
+      ? foldPeerReplies(next.messages, { includePeerReceipts: true }).markerOf.get(messageId)
       : undefined;
     if (markerId) {
       setExpandedPeerMarkers((expanded) =>

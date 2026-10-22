@@ -1,7 +1,12 @@
 import type { ThreadMessage } from "@rakazo/contracts";
 import { describe, expect, it } from "vitest";
 import { projectMessageReactions } from "./message-reactions.js";
-import { expandPeerReplies, foldPeerReplies, userVisibleMessages } from "./message-visibility.js";
+import {
+  expandPeerReplies,
+  foldPeerReplies,
+  jumpTargetId,
+  userVisibleMessages,
+} from "./message-visibility.js";
 
 function message(id: string, runId: string, blocks: ThreadMessage["blocks"]): ThreadMessage {
   return {
@@ -138,6 +143,10 @@ describe("user-visible messages", () => {
         { includePeerReceipts: true },
       ).messages.map((item) => item.id),
     ).toEqual(["user", "received", "relay"]);
+    // A jump to the dropped marker (a search hit on its text) lands on the receipt it merged into.
+    const merged = foldPeerReplies(resultFor("result"), { includePeerReceipts: true });
+    expect(jumpTargetId(merged, "received")).toBe("sent");
+    expect(jumpTargetId(merged, "relay")).toBe("relay");
     // New work from another bot: the reply goes back to that bot, so it folds.
     for (const intent of ["request", "question"] as const) {
       expect(
