@@ -25,7 +25,8 @@ export type UserVisibleMessagesOptions = {
   /**
    * Surface a peer-run's own `text` reply (e.g. a delegating bot's summary to the user)
    * alongside `ask` cards. Defaults to true for chat-thread rendering; set false for
-   * contexts like sidebar previews that should stay ask-only and never echo peer chatter.
+   * contexts like sidebar previews that should never echo peer chatter. A relay of delegated
+   * work is the bot's own reply to the user and stays either way.
    */
   includeDelegatedReplyText?: boolean;
 };
@@ -146,8 +147,9 @@ export function foldPeerReplies<T extends PresentableMessage>(
     if (!message.runId || !peerRunIds.has(message.runId)) return true;
     // User-input cards stay inline; previews without receipts keep only asks, as before.
     if (message.blocks.some(includePeerReceipts ? isPeerInputBlock : isAskBlock)) return true;
+    // A relay is the bot's own reply to the user, so previews show it too.
     if (
-      !includeText ||
+      (!includeText && !relayRunIds.has(message.runId)) ||
       !message.blocks.some(
         (block) => block.kind === "text" || block.kind === "file" || block.kind === "image",
       )

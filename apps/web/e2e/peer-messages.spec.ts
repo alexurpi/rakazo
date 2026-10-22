@@ -361,9 +361,15 @@ test("answers a message sent while the bot works on another bot's request", asyn
   // Only Chief's request goes back to Chief, not the answer to the user.
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
+  // Chief relays Researcher's result as its own reply; the result's marker merges into the
+  // "Messaged Researcher" receipt.
+  const chiefTranscript = page.getByTestId("transcript");
+  await expect(chiefTranscript.getByText("done.", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(
-    page.getByTestId("transcript").getByText(/^Here's what Researcher found: /),
-  ).toBeVisible({ timeout: 30_000 });
+    chiefTranscript.getByTestId("peer-receipt-chip").filter({ hasText: "Message from Researcher" }),
+  ).toHaveCount(0);
   const returned = await rpc<{
     messages: Array<{ blocks: Array<{ kind: string; text?: string }> }>;
   }>(page, "threads/messages", { botId: researcher.id, includePeerRuns: true });

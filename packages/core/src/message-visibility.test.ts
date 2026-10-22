@@ -146,9 +146,14 @@ describe("user-visible messages", () => {
           ?.map((item) => item.id),
       ).toEqual(["relay"]);
     }
-    // Sidebar previews stay ask-only.
+    // Sidebar previews show the relay, the bot's own reply, but never another bot's new work.
     expect(
       userVisibleMessages(resultFor("result"), { includeDelegatedReplyText: false }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["user", "relay"]);
+    expect(
+      userVisibleMessages(unthreaded("request"), { includeDelegatedReplyText: false }).map(
         (item) => item.id,
       ),
     ).toEqual(["user"]);
