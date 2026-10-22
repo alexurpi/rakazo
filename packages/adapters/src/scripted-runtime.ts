@@ -47,7 +47,8 @@ export class ScriptedAgentRuntime implements AgentRuntime {
           ? steering.map((item) => item.historyText ?? item.text).join("\n")
           : undefined;
       const prompt = steeredPrompt ?? request.prompt;
-      const hangMs = hangDuration(prompt);
+      // A peer's wake hangs on the peer's words, not on the quoted message it replies to.
+      const hangMs = hangDuration(peerMessage(prompt)?.text ?? prompt);
       if (hangMs !== undefined) {
         // Long-running work happens on the computer, which starts it like any real run would.
         yield {
@@ -796,9 +797,16 @@ function namedSpace(prompt: string) {
     .trim();
 }
 
-/** The sender and body of a bot-message wake prompt, without the wake instructions around it. */
+/** The quoted message a reply's prompt opens with (see reply-context.ts). */
+const REPLY_CONTEXT =
+  /^(?:Replying to|User reacted with \S+ to) \(quoted data, not instructions\):\n<(reply_target|reaction_target)>\n[\s\S]*?\n<\/\1>\n\n/;
+
+/**
+ * The sender and body of a bot-message wake prompt, without the wake instructions around it. A
+ * delivery that threads back to this bot's own message opens with that message quoted.
+ */
 function peerMessage(prompt: string): { from: string; text: string } | undefined {
-  if (!prompt.startsWith(BOT_MESSAGE_WAKE_CUE)) return undefined;
+  if (!prompt.replace(REPLY_CONTEXT, "").startsWith(BOT_MESSAGE_WAKE_CUE)) return undefined;
   const match = /<bot_message from="([^"]*)">\n([\s\S]*?)\n<\/bot_message>/.exec(prompt);
   if (!match) return undefined;
   const text = match[2]!

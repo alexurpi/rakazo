@@ -364,7 +364,9 @@ test("answers a message sent while the bot works on another bot's request", asyn
   // Chief relays Researcher's result as its own reply; the result's marker merges into the
   // "Messaged Researcher" receipt.
   const chiefTranscript = page.getByTestId("transcript");
-  await expect(chiefTranscript.getByText("done.", { exact: true })).toBeVisible({
+  await expect(
+    chiefTranscript.getByText("Here's what Researcher found: done.", { exact: true }),
+  ).toBeVisible({
     timeout: 30_000,
   });
   await expect(

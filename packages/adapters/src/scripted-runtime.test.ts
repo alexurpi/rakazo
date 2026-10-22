@@ -392,6 +392,23 @@ describe("ScriptedAgentRuntime steering", () => {
     expect(events.at(-1)).toEqual({ type: "done", text: "done." });
   });
 
+  it("relays a result that quotes the timed request it answers instead of working", async () => {
+    const from = { id: "bot-researcher", name: "Researcher" };
+    const quoted = `Replying to (quoted data, not instructions):\n<reply_target>\n${JSON.stringify({
+      messageId: "sent-1",
+      role: "bot",
+      content: "Messaged Researcher: work for 8 seconds",
+    })}\n</reply_target>`;
+    const result = buildBotMessageWakePrompt({ from, text: "done.", intent: "result" });
+    expect(await collect(request(`${quoted}\n\n${result}`))).toContainEqual({
+      type: "text",
+      text: "Here's what Researcher found: done.",
+    });
+    // The peer's own words still drive timed work.
+    const work = buildBotMessageWakePrompt({ from, text: "work for 0 seconds", intent: "request" });
+    expect((await collect(request(work))).at(-1)).toEqual({ type: "done", text: "done." });
+  });
+
   it("does not hang the bot that asks another bot to keep working", async () => {
     const events = await collect(request("message the bot named Researcher saying keep working"));
     expect(events).toContainEqual(expect.objectContaining({ type: "tool", name: "message_bot" }));
