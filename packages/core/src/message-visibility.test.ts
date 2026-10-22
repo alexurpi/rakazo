@@ -87,6 +87,55 @@ describe("user-visible messages", () => {
     ]);
   });
 
+  it("keeps the relay of a delegated result inline while its peer activity stays hidden", () => {
+    const resultFor = (intent: "result" | "status" | "fyi") => [
+      message("user", "run-user", [{ kind: "text", text: "Please ask Coder." }]),
+      message("sent", "run-user", [
+        { kind: "bot_message_sent", toBotId: "coder", toBotName: "Coder", text: "Check this." },
+      ]),
+      {
+        ...message("received", "run-peer", [
+          {
+            kind: "bot_message_received",
+            fromBotId: "coder",
+            fromBotName: "Coder",
+            text: "The endpoint returns 200.",
+            intent,
+          },
+        ]),
+        replyToMessageId: "sent",
+      },
+      message("activity", "run-peer", [
+        { kind: "steps", steps: [{ label: "Message bot", count: 1 }] },
+      ]),
+      message("relay", "run-peer", [{ kind: "text", text: "Coder confirmed it returns 200." }]),
+    ];
+
+    for (const intent of ["result", "status"] as const) {
+      const transcript = foldPeerReplies(resultFor(intent), { includePeerReceipts: true });
+      expect(transcript.messages.map((item) => item.id)).toEqual([
+        "user",
+        "sent",
+        "received",
+        "relay",
+      ]);
+      expect(transcript.folded.size).toBe(0);
+    }
+    // An FYI never threads back to a request, so a reply to it is still peer chatter.
+    const fyi = resultFor("fyi").map((item) => ({ ...item, replyToMessageId: undefined }));
+    expect(
+      foldPeerReplies(fyi, { includePeerReceipts: true })
+        .folded.get("received")
+        ?.map((item) => item.id),
+    ).toEqual(["relay"]);
+    // Sidebar previews stay ask-only.
+    expect(
+      userVisibleMessages(resultFor("result"), { includeDelegatedReplyText: false }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["user"]);
+  });
+
   it("folds peer-run file replies under their received marker", () => {
     const messages = [
       ...peerExchange,

@@ -58,6 +58,21 @@ function isAskBlock(block: MessageBlock): boolean {
   return block.kind === "ask";
 }
 
+/**
+ * A result or status answering this bot's own request: the delivery threads back to the request
+ * it answers, matching the server's rule for when the relay marks the chat unread.
+ */
+function returnsDelegatedOutcome(message: PresentableMessage): boolean {
+  return (
+    !!message.replyToMessageId &&
+    message.blocks.some(
+      (block) =>
+        block.kind === "bot_message_received" &&
+        (block.intent === "result" || block.intent === "status"),
+    )
+  );
+}
+
 export type FoldedTranscript<T> = {
   messages: T[];
   /** Peer-run replies keyed by the id of the `bot_message_received` marker they fold under. */
@@ -68,7 +83,8 @@ export type FoldedTranscript<T> = {
 
 /**
  * Drop peer-run activity; optionally keep sent/received receipt rows. With receipts kept, a
- * peer run's bot text replies fold under its received marker; its user-input cards stay inline.
+ * peer run's bot text replies fold under its received marker; its user-input cards stay inline,
+ * and so does its relay of a result or status for work it delegated.
  */
 export function foldPeerReplies<T extends PresentableMessage>(
   messages: readonly T[],
@@ -76,6 +92,8 @@ export function foldPeerReplies<T extends PresentableMessage>(
 ): FoldedTranscript<T> {
   const includePeerReceipts = options.includePeerReceipts === true;
   const markerByRunId = new Map<string, string>();
+  // Runs woken by the outcome of work this bot delegated: their reply is the relay to the user.
+  const relayRunIds = new Set<string>();
   for (const message of messages) {
     if (
       message.runId &&
@@ -83,6 +101,7 @@ export function foldPeerReplies<T extends PresentableMessage>(
       message.blocks.some((block) => block.kind === "bot_message_received")
     ) {
       markerByRunId.set(message.runId, message.id);
+      if (returnsDelegatedOutcome(message)) relayRunIds.add(message.runId);
     }
   }
   const peerRunIds = new Set([...(options.knownPeerRunIds ?? []), ...markerByRunId.keys()]);
@@ -123,6 +142,7 @@ export function foldPeerReplies<T extends PresentableMessage>(
       return false;
     // Only bot replies fold: a person's answer, steering or reaction in the run stays inline.
     if (message.role !== "bot") return true;
+    if (relayRunIds.has(message.runId)) return true;
     const markerId = includePeerReceipts ? markerByRunId.get(message.runId) : undefined;
     // A reply whose marker is outside the loaded page stays inline.
     if (markerId === undefined) return true;
