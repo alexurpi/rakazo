@@ -1,10 +1,6 @@
 import { ChatMarkdown } from "@rakazo/chat-ui/native";
-import {
-  displayName,
-  loadPeerHistory,
-  type PeerConversation,
-  peerConversations,
-} from "@rakazo/core";
+import type { PeerConversation } from "@rakazo/core";
+import { displayName, loadPeerHistory, peerConversations } from "@rakazo/core";
 import { typeScale } from "@rakazo/ui-tokens";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -43,8 +39,12 @@ export default function PeerChat() {
     setState({ kind: "loading" });
     void loadPeerHistory({
       signal: abort.signal,
-      loadPage: (before) =>
-        rpc<MobileMessagePage>("threads/messages", { botId, before, includePeerRuns: true }),
+      loadPage: (before, signal) =>
+        rpc<MobileMessagePage>(
+          "threads/messages",
+          { botId, before, includePeerRuns: true },
+          { signal },
+        ),
     })
       .then((messages) => {
         if (abort.signal.aborted) return;
